@@ -11,13 +11,23 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import pandas as pd
 
+# Configuration
+SPREADSHEET_NAME = "Time logging 31/05/2025"  # Name of the Google Spreadsheet
+WORKSHEET_NAME = "Access"  # Name of the specific worksheet/tab
+CREDENTIALS_FILE = "google_credentials.json"
+KART_NUMBER = "16"  # Kart number to track
+URL = "https://live.racefacer.com/e1gokartgdansk"
+
 class KartTimingScraper:
-    def __init__(self, spreadsheet_name, credentials_file):
-        self.url = "https://live.racefacer.com/e1gokartgdansk"
-        self.kart_number = "24"
+    def __init__(self, spreadsheet_name, worksheet_name, credentials_file):
+        self.url = URL
+        self.kart_number = KART_NUMBER
         self.spreadsheet_name = spreadsheet_name
+        self.worksheet_name = worksheet_name
+        self.last_lap_time = None
+        self.last_lap_count = None
         self.setup_driver()
-        # self.setup_google_sheets(credentials_file)
+        self.setup_google_sheets(credentials_file)
 
     def setup_driver(self):
         """Setup Chrome driver with headless mode"""
@@ -47,18 +57,37 @@ class KartTimingScraper:
 
     def setup_google_sheets(self, credentials_file):
         """Setup Google Sheets connection"""
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        
-        credentials = Credentials.from_service_account_file(
-            credentials_file, scopes=scopes
-        )
-        
-        self.gc = gspread.authorize(credentials)
-        self.spreadsheet = self.gc.open(self.spreadsheet_name)
-        self.worksheet = self.spreadsheet.sheet1
+        try:
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            
+            credentials = Credentials.from_service_account_file(
+                credentials_file, scopes=scopes
+            )
+            
+            self.gc = gspread.authorize(credentials)
+            self.spreadsheet = self.gc.open(self.spreadsheet_name)
+            
+            # List all available worksheets
+            print(f"Available worksheets in {self.spreadsheet_name}:")
+            for sheet in self.spreadsheet.worksheets():
+                print(f"- {sheet.title}")
+            
+            # Try to get the specific worksheet
+            try:
+                self.worksheet = self.spreadsheet.worksheet(self.worksheet_name)
+                print(f"Successfully connected to worksheet: {self.worksheet_name}")
+            except Exception as e:
+                print(f"Error accessing worksheet {self.worksheet_name}: {str(e)}")
+                print("Falling back to first worksheet...")
+                self.worksheet = self.spreadsheet.sheet1
+                print(f"Using worksheet: {self.worksheet.title}")
+        except Exception as e:
+            print(f"Error setting up Google Sheets: {str(e)}")
+            print("Please check your credentials file and permissions.")
+            raise  # Re-raise the exception to prevent the script from continuing without proper setup
 
     def get_lap_times(self):
         """Scrape current timing for kart #10"""
@@ -92,13 +121,32 @@ class KartTimingScraper:
                         # Found our kart, get the lap time from the fourth column
                         lap_time_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[4]")
                         current_time = lap_time_element.text
-                        print(f"Found kart {self.kart_number} with time: {current_time}")
                         
-                        return {
-                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'kart_number': self.kart_number,
-                            'current_time': current_time
-                        }
+                        # Get the lap count from the ninth column
+                        lap_count_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[9]")
+                        current_lap_count = lap_count_element.text
+                        
+                        # Get the driver name from the third column
+                        driver_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[3]/div/div/div[2]")
+                        driver_name = driver_element.text
+                        
+                        print(f"Found kart {self.kart_number} with time: {current_time} (Lap {current_lap_count}) - Driver: {driver_name}")
+                        
+                        # Check if this is a new lap
+                        if current_time != self.last_lap_time or current_lap_count != self.last_lap_count:
+                            self.last_lap_time = current_time
+                            self.last_lap_count = current_lap_count
+                            return {
+                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'kart_number': self.kart_number,
+                                'driver_name': driver_name,
+                                'current_time': current_time,
+                                'lap_count': current_lap_count
+                            }
+                        else:
+                            print("Same lap time and count as previous check, skipping update")
+                            return None
+                            
                 except Exception as e:
                     print(f"Error processing row {row_index}: {str(e)}")
                     continue
@@ -116,22 +164,41 @@ class KartTimingScraper:
     def update_spreadsheet(self, data):
         """Update Google Sheet with new timing data"""
         if data:
-            # Append new row to the worksheet
-            self.worksheet.append_row([
-                data['timestamp'],
-                data['kart_number'],
-                data['current_time']
-            ])
+            try:
+                # Get all existing data
+                all_data = self.worksheet.get_all_values()
+                print(f"Current number of rows in worksheet: {len(all_data)}")
+                
+                # Find the next empty row
+                next_row = len(all_data) + 1
+                
+                # Prepare the data row
+                new_row = [
+                    data['timestamp'],
+                    data['kart_number'],
+                    data['driver_name'],
+                    data['current_time'],
+                    data['lap_count']
+                ]
+                
+                # Append new row to the worksheet
+                self.worksheet.append_row(new_row)
+                print(f"Data added to row {next_row}: {new_row}")
+            except Exception as e:
+                print(f"Error updating spreadsheet: {str(e)}")
+                print("Full error details:", e.__class__.__name__)
 
     def run(self, interval=30):
         """Run the scraper continuously"""
         print("Starting kart timing scraper...")
+        print(f"Tracking kart number: {self.kart_number}")
+        print(f"Updating spreadsheet: {self.spreadsheet_name} - Worksheet: {self.worksheet_name}")
         while True:
             try:
                 data = self.get_lap_times()
                 if data:
-                    # self.update_spreadsheet(data)
-                    print(f"Updated spreadsheet with new timing: {data['current_time']}")
+                    self.update_spreadsheet(data)
+                    print(f"Updated spreadsheet with new timing: {data['current_time']} (Lap {data['lap_count']}) - Driver: {data['driver_name']}")
                 time.sleep(interval)  # Wait for specified interval before next scrape
             except Exception as e:
                 print(f"Error in main loop: {str(e)}")
@@ -142,11 +209,7 @@ class KartTimingScraper:
         self.driver.quit()
 
 if __name__ == "__main__":
-    # Replace these with your actual values
-    SPREADSHEET_NAME = "Kart Timing Data"
-    CREDENTIALS_FILE = "google_credentials.json"
-    
-    scraper = KartTimingScraper(SPREADSHEET_NAME, CREDENTIALS_FILE)
+    scraper = KartTimingScraper(SPREADSHEET_NAME, WORKSHEET_NAME, CREDENTIALS_FILE)
     try:
         scraper.run()
     except KeyboardInterrupt:

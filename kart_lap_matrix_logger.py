@@ -14,8 +14,8 @@ from datetime import datetime
 SPREADSHEET_NAME = "Time logging 31/05/2025"
 WORKSHEET_NAME = "Lap Matrix"
 CREDENTIALS_FILE = "google_credentials.json"
-URL = "https://live.racefacer.com/e1gokartchorzow"
-KART_NUMBERS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]  # Order preserved
+URL = "https://live.racefacer.com/speedbay"
+KART_NUMBERS = ["201","202","203","204","205"]  # Order preserved
 
 class KartLapMatrixLogger:
     def __init__(self, spreadsheet_name, worksheet_name, kart_numbers, credentials_file):
@@ -87,32 +87,41 @@ class KartLapMatrixLogger:
                 return None
 
     def get_kart_data(self):
-        """Scrape the table and return a dict of kart_number -> (driver, lap_time, lap_count)"""
+        """Scrape the table and return a dict of kart_number -> (driver, lap_time, lap_count) for all karts in the table."""
+        print("Scraping kart data from page...")
         self.driver.get(self.url)
         time.sleep(5)
         WebDriverWait(self.driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "/html/body/div[4]/div[2]/div/div[3]/table"))
+            EC.presence_of_element_located((By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/table"))
         )
-        rows = self.driver.find_elements(By.XPATH, "/html/body/div[4]/div[2]/div/div[3]/table/tr")
+        rows = self.driver.find_elements(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/table/tr")
+        print(f"Found {len(rows)} rows in the table.")
         kart_data = {}
-        for row_index in range(2, len(rows) + 1):
+        # Only process even-numbered rows (2, 4, 6, ...) for kart info
+        for row_index in range(2, len(rows) + 1, 2):  # Start at 2, step by 2
             try:
-                kart_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[2]/div/span")
-                kart_number = kart_element.text
+                kart_number_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[2]/div/span")
+                kart_number = kart_number_element.text
                 if kart_number in self.kart_numbers:
-                    lap_time_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[4]")
+                    lap_time_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[4]")
                     current_time = lap_time_element.text
                     if current_time == "-":
+                        print(f"Kart {kart_number}: Lap time is '-', skipping.")
                         continue
                     lap_time_sec = self.parse_lap_time(current_time)
                     if lap_time_sec is None:
+                        print(f"Kart {kart_number}: Lap time '{current_time}' could not be parsed, skipping.")
                         continue
-                    lap_count_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[9]")
+                    lap_count_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[8]")
                     current_lap_count = lap_count_element.text
-                    driver_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[3]/div/div/div[2]")
+                    driver_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[3]/div/div/div[2]")
                     driver_name = driver_element.text
+                    print(f"Found kart {kart_number}: Driver={driver_name}, LapTime={lap_time_sec}, LapCount={current_lap_count}")
                     kart_data[kart_number] = (driver_name, lap_time_sec, current_lap_count)
-            except Exception:
+                else:
+                    print(f"Row {row_index}: Kart {kart_number} not in KART_NUMBERS, skipping.")
+            except Exception as e:
+                print(f"Error processing row {row_index}: {e}")
                 continue
         return kart_data
 
@@ -146,13 +155,39 @@ class KartLapMatrixLogger:
         # This function is now unused, but kept for reference
         pass
 
-    def run(self, interval=30):
+    def recreate_driver(self):
+        """Recreate the Chrome driver"""
+        try:
+            self.driver.quit()
+        except Exception:
+            pass
+        self.setup_driver()
+        print("Successfully recreated Chrome driver.")
+
+    def run(self, interval=5):
         print(f"Logging lap times for karts: {', '.join(self.kart_numbers)}")
+        consecutive_errors = 0
+        max_consecutive_errors = 3
         try:
             while True:
-                kart_data = self.get_kart_data()
-                self.update_matrix(kart_data)
-                time.sleep(interval)
+                try:
+                    kart_data = self.get_kart_data()
+                    self.update_matrix(kart_data)
+                    consecutive_errors = 0  # Reset on success
+                    time.sleep(interval)
+                except Exception as e:
+                    consecutive_errors += 1
+                    print(f"Error in main loop: {str(e)}")
+                    if "invalid session id" in str(e).lower():
+                        print("Detected invalid session, attempting to recreate driver...")
+                        try:
+                            self.recreate_driver()
+                            consecutive_errors = 0
+                        except Exception as e2:
+                            print(f"Failed to recreate driver: {e2}")
+                    if consecutive_errors >= max_consecutive_errors:
+                        print(f"Too many consecutive errors ({consecutive_errors}), exiting...")
+                        break
         except KeyboardInterrupt:
             print("\nStopping logger...")
             self.driver.quit()

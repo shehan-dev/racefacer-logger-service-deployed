@@ -17,16 +17,12 @@ import sys
 # Configuration
 SPREADSHEET_NAME = "Time logging 31/05/2025"  # Name of the Google Spreadsheet
 CREDENTIALS_FILE = "google_credentials.json"
-URL = "https://live.racefacer.com/orlandokartcenter"
+URL = "https://live.racefacer.com/speedbay"
 
 # Define kart configurations
 KART_CONFIGS = [
     {
-        'kart_number': '124',
-        'worksheet_name': 'Access'
-    },
-    {
-        'kart_number': '141',
+        'kart_number': '202',
         'worksheet_name': 'Access'
     }
     # Add more kart configurations as needed
@@ -124,7 +120,7 @@ class KartTimingScraper:
                 return None
 
     def get_lap_times(self):
-        """Scrape current timing for all configured karts"""
+        """Scrape current timing for all configured karts using updated XPaths and only process even-numbered rows (skip progress bars)."""
         try:
             print(f"\nLoading page: {self.url}")
             self.driver.get(self.url)
@@ -136,51 +132,32 @@ class KartTimingScraper:
             # Wait for the table to be present
             print("Waiting for table to load...")
             WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.XPATH, "/html/body/div[4]/div[2]/div/div[3]/table"))
+                EC.presence_of_element_located((By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/table"))
             )
             
-            # Get all rows in the table
-            rows = self.driver.find_elements(By.XPATH, "/html/body/div[4]/div[2]/div/div[3]/table/tr")
-            print(f"Found {len(rows)} rows in the table")
-            
+            rows = self.driver.find_elements(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/table/tr")
+            print(f"Found {len(rows)} rows in the table.")
             updates = []
-            
-            # Start from row 2 to skip the header row
-            for row_index in range(2, len(rows) + 1):
+            # Only process even-numbered rows (2, 4, 6, ...) for kart info
+            for row_index in range(2, len(rows) + 1, 2):  # Start at 2, step by 2
                 try:
-                    # Get kart number from the second column
-                    kart_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[2]/div/span")
-                    kart_number = kart_element.text
-                    
-                    # Check if this is one of our configured karts
+                    kart_number_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[2]/div/span")
+                    kart_number = kart_number_element.text
                     if kart_number in self.last_lap_times:
-                        print(f"Found configured kart {kart_number}")
-                        
-                        # Get the lap time from the fourth column
-                        lap_time_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[4]")
+                        lap_time_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[4]")
                         current_time = lap_time_element.text
-                        
-                        # Skip if lap time is "-"
                         if current_time == "-":
                             print(f"Kart {kart_number} - Skipping update as lap time is not available")
                             continue
-                        
                         lap_time_sec = self.parse_lap_time(current_time)
                         if lap_time_sec is None:
                             print(f"Kart {kart_number} - Skipping update as lap time could not be parsed")
                             continue
-                        
-                        # Get the lap count from the ninth column
-                        lap_count_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[9]")
+                        lap_count_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[8]")
                         current_lap_count = lap_count_element.text
-                        
-                        # Get the driver name from the third column
-                        driver_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[3]/table/tr[{row_index}]/td[3]/div/div/div[2]")
+                        driver_element = self.driver.find_element(By.XPATH, f"/html/body/div[4]/div[2]/div/div[2]/table/tr[{row_index}]/td[3]/div/div/div[2]")
                         driver_name = driver_element.text
-                        
                         print(f"Kart {kart_number} - Time: {lap_time_sec} (Lap {current_lap_count}) - Driver: {driver_name}")
-                        
-                        # Check if this is a new lap
                         if lap_time_sec != self.last_lap_times[kart_number] or current_lap_count != self.last_lap_counts[kart_number]:
                             self.last_lap_times[kart_number] = lap_time_sec
                             self.last_lap_counts[kart_number] = current_lap_count
@@ -196,11 +173,11 @@ class KartTimingScraper:
                             })
                         else:
                             print(f"Kart {kart_number} - Same lap time and count as previous check, skipping update")
-                            
+                    else:
+                        print(f"Row {row_index}: Kart {kart_number} not in KART_CONFIGS, skipping.")
                 except Exception as e:
                     print(f"Error processing row {row_index}: {str(e)}")
                     continue
-            
             return updates
                 
         except Exception as e:

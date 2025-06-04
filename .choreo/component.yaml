@@ -1,0 +1,12 @@
+schemaVersion: "1.2"
+endpoints:
+    - name: racefacer-logger-2f6
+      displayName: Racefacer Logger
+      service:
+        basePath: /rs
+        port: 5000
+      type: REST
+      networkVisibilities:
+        - Project
+        - Public
+      schemaFilePath: openapi.yaml

@@ -10,6 +10,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import gspread.utils
+import os
 
 class KartLapMatrixLogger:
     def __init__(self, spreadsheet_name, worksheet_name, kart_numbers, credentials_file):
@@ -33,12 +34,33 @@ class KartLapMatrixLogger:
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--user-agent=Mozilla/5.0")
 
+        # Try to get Chrome binary location from environment variable
+        chrome_binary = os.getenv('CHROME_BIN')
+        
+        # If not set, try common locations
+        if not chrome_binary:
+            common_locations = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",  # Windows
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",  # Windows (x86)
+                "/usr/bin/google-chrome",  # Linux
+                "/usr/bin/google-chrome-stable",  # Linux (stable)
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"  # macOS
+            ]
+            
+            for location in common_locations:
+                if os.path.exists(location):
+                    chrome_binary = location
+                    break
+
         try:
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
         except Exception as e:
-            chrome_options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            self.driver = webdriver.Chrome(options=chrome_options)
+            if chrome_binary:
+                chrome_options.binary_location = chrome_binary
+                self.driver = webdriver.Chrome(options=chrome_options)
+            else:
+                raise Exception("Could not find Chrome binary. Please set CHROME_BIN environment variable or ensure Chrome is installed in a standard location.")
 
         self.driver.set_page_load_timeout(30)
         self.driver.implicitly_wait(10)

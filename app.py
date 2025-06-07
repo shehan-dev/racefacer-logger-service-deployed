@@ -4,17 +4,18 @@ from kart_timing_scraper import KartTimingScraper
 import threading
 import os
 
-app = Flask(__name__)
+# Create Flask app with the correct base path
+app = Flask(__name__, static_url_path='/rs/static')
 
 matrix_logger = None
 scraper = None
 scraper_thread = None
 
-@app.route("/")
+@app.route("/rs/")
 def home():
     return "🏁 Kart Timing Flask API is running!"
 
-@app.route("/start-matrix-logger", methods=["POST"])
+@app.route("/rs/start-matrix-logger", methods=["POST"])
 def start_matrix_logger():
     global matrix_logger
     if matrix_logger:
@@ -32,7 +33,7 @@ def start_matrix_logger():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/start-scraper", methods=["POST"])
+@app.route("/rs/start-scraper", methods=["POST"])
 def start_scraper():
     global scraper, scraper_thread
     if scraper:
@@ -54,7 +55,7 @@ def start_scraper():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/stop-scraper", methods=["POST"])
+@app.route("/rs/stop-scraper", methods=["POST"])
 def stop_scraper():
     global scraper
     if not scraper:

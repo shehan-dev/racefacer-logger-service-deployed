@@ -4,6 +4,7 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PORT=5000
 
 # Install Chrome dependencies
 RUN apt-get update && apt-get install -y \
@@ -29,7 +30,7 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Expose Flask port
-EXPOSE 5000
+EXPOSE ${PORT}
 
 # Start the app
 CMD ["python", "app.py"]

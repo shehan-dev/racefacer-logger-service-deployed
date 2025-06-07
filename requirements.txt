@@ -5,3 +5,4 @@ google-auth==2.23.4
 webdriver-manager==4.0.1
 requests==2.31.0 
 flask
+gunicorn==21.2.0

@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from kart_lap_matrix_logger import KartLapMatrixLogger
 from kart_timing_scraper import KartTimingScraper
 import threading
+import os
 
 app = Flask(__name__)
 
@@ -64,4 +65,7 @@ def stop_scraper():
     return jsonify({"message": "Scraper stopped"})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Get port from environment variable or default to 5000
+    port = int(os.getenv('PORT', 5000))
+    # Bind to all interfaces and use production server
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
